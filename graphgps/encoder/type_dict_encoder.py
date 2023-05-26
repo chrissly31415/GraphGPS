@@ -93,8 +93,12 @@ class TypeDictNodeEncoder(torch.nn.Module):
 
     def forward(self, batch):
         # Encode just the first dimension if more exist
-        batch.x = self.encoder(batch.x[:, 0])
-
+        try:
+            batch.x = self.encoder(batch.x[:, 0])
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            breakpoint()
         return batch
 
 

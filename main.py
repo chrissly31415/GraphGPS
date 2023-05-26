@@ -114,6 +114,7 @@ def run_loop_settings():
 
 
 if __name__ == '__main__':
+    print(f"cuda: {torch.cuda.is_available()}")
     # Load cmd line args
     args = parse_args()
     # Load config file

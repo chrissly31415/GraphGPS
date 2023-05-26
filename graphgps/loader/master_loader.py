@@ -9,12 +9,12 @@ import torch_geometric.transforms as T
 from numpy.random import default_rng
 from ogb.graphproppred import PygGraphPropPredDataset
 from torch_geometric.datasets import (Actor, GNNBenchmarkDataset, Planetoid,
-                                      TUDataset, WebKB, WikipediaNetwork, ZINC)
+                                      TUDataset, WebKB, WikipediaNetwork)
 from torch_geometric.graphgym.config import cfg
 from torch_geometric.graphgym.loader import load_pyg, load_ogb, set_dataset_attr
 from torch_geometric.graphgym.register import register_loader
 
-from graphgps.loader.dataset.aqsol_molecules import AQSOL
+from graphgps.loader.dataset.custom_datasets import AQSOL,LOGP, ZINC
 from graphgps.loader.dataset.coco_superpixels import COCOSuperpixels
 from graphgps.loader.dataset.malnet_tiny import MalNetTiny
 from graphgps.loader.dataset.voc_superpixels import VOCSuperpixels
@@ -129,10 +129,14 @@ def load_dataset_master(format, name, dataset_dir):
 
         elif pyg_dataset_id == 'ZINC':
             dataset = preformat_ZINC(dataset_dir, name)
+
             
         elif pyg_dataset_id == 'AQSOL':
-            dataset = preformat_AQSOL(dataset_dir, name)
-
+            dataset = preformat_AQSOL(dataset_dir)
+        
+        elif pyg_dataset_id == 'LOGP':
+            dataset = LOGP(root=dataset_dir)
+    
         elif pyg_dataset_id == 'VOCSuperpixels':
             dataset = preformat_VOCSuperpixels(dataset_dir, name,
                                                cfg.dataset.slic_compactness)
@@ -140,7 +144,6 @@ def load_dataset_master(format, name, dataset_dir):
         elif pyg_dataset_id == 'COCOSuperpixels':
             dataset = preformat_COCOSuperpixels(dataset_dir, name,
                                                 cfg.dataset.slic_compactness)
-
         else:
             raise ValueError(f"Unexpected PyG Dataset identifier: {format}")
 
@@ -229,7 +232,6 @@ def load_dataset_master(format, name, dataset_dir):
             dataset[dataset.data['train_graph_index']])
         # print(f"Indegrees: {cfg.gt.pna_degrees}")
         # print(f"Avg:{np.mean(cfg.gt.pna_degrees)}")
-
     return dataset
 
 
@@ -610,6 +612,7 @@ def preformat_COCOSuperpixels(dataset_dir, name, slic_compactness):
                          split=split)
          for split in ['train', 'val', 'test']]
     )
+  
     return dataset
 
 

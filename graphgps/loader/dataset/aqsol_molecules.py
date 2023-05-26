@@ -82,6 +82,9 @@ class AQSOL(InMemoryDataset):
         os.unlink(path)
     
     def process(self):
+        
+        max_len = 25
+        max_len_cur = 0
         for split in ['train', 'val', 'test']:
             with open(osp.join(self.raw_dir, f'{split}.pickle'), 'rb') as f:
                 graphs = pickle.load(f)
@@ -104,6 +107,11 @@ class AQSOL(InMemoryDataset):
                 """
                 
                 x = torch.LongTensor(graph[0]).unsqueeze(-1)
+                if len(x)>25:
+                    print(f"Skipping molecule with {len(x)} nodes")
+                    continue
+                if len(x)>max_len_cur:
+                    max_len_cur = len(x)
                 edge_attr = torch.LongTensor(graph[1])#.unsqueeze(-1)
                 edge_index = torch.LongTensor(graph[2])
                 y = torch.tensor(graph[3])
@@ -129,5 +137,6 @@ class AQSOL(InMemoryDataset):
                 pbar.update(1)
 
             pbar.close()
+            print(f"Max len:{max_len_cur}")
             torch.save(self.collate(data_list),
                        osp.join(self.processed_dir, f'{split}.pt'))
