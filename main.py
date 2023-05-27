@@ -118,6 +118,7 @@ if __name__ == '__main__':
     # Load cmd line args
     args = parse_args()
     # Load config file
+
     set_cfg(cfg)
     load_cfg(cfg, args)
     custom_set_out_dir(cfg, args.cfg_file, cfg.name_tag)
@@ -141,6 +142,7 @@ if __name__ == '__main__':
         logging.info(f"    Starting now: {datetime.datetime.now()}")
         # Set machine learning pipeline
         loaders = create_loader()
+        breakpoint()
         loggers = create_logger()
         model = create_model()
         if cfg.pretrained.dir:

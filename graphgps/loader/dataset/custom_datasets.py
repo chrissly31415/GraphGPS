@@ -6,6 +6,8 @@ from typing import Callable, List, Optional
 
 from rdkit import Chem
 import numpy as np
+from pathlib import Path
+import pandas as pd
 
 import torch
 
@@ -312,21 +314,21 @@ class ZINC(InMemoryDataset):
                        osp.join(self.processed_dir, f'{split}.pt'))
 
 
-
-class LOGP(InMemoryDataset):
+class OPERA(InMemoryDataset):
     
     url = 'https://ndownloader.figstatic.com/files/10692997'
-    
-    
+       
     # Define a mapping from bond types to integers
     bond_type_to_int = {Chem.rdchem.BondType.SINGLE: 1, 
                     Chem.rdchem.BondType.DOUBLE: 2,
                     Chem.rdchem.BondType.TRIPLE: 3,
                     Chem.rdchem.BondType.AROMATIC: 1}
     
-    train_test_map = {'train': 'TR_LogP_10537', 'test': 'TST_LogP_3513'}
     
-    
+    DATASETS = ["OPERA_LogP","OPERA_AOH", "OPERA_BCF", "OPERA_BioHL", "OPERA_BP", "OPERA_HL", "OPERA_KM", "OPERA_KOA", "OPERA_KOC", "OPERA_MP", "OPERA_RBioDeg", "OPERA_VP", "OPERA_WS"]
+
+    TARGET_MAP = {'VP': 'LogVP', 'WS': 'LogMolar','KOC':'LogKOC'}
+
     PREDEFINED_MAPPING = {
     6: 0,  # Carbon
     1: 1,  # Hydrogen
@@ -345,33 +347,36 @@ class LOGP(InMemoryDataset):
     def __init__(
         self,
         root: str,
-        subset: bool = False,
         split: str = 'train',
+        name: str = 'OPERA_LogP',
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         pre_filter: Optional[Callable] = None,
     ):
-        self.subset = subset
-        assert split in ['train', 'val', 'test']
+        assert split in ['train', 'test']
+        self.name = name
+        assert self.name in self.DATASETS
+        self.target = self.name.replace("OPERA_","")
+        if self.target in self.TARGET_MAP.keys():
+            self.target = self.TARGET_MAP[self.target]
         super().__init__(root, transform, pre_transform, pre_filter) # Dataset starts download and process on init
         path = osp.join(self.processed_dir, f'{split}.pt')
         self.data, self.slices = torch.load(path)
 
     @property
     def raw_file_names(self) -> List[str]:
-        return [
-            'train.pickle', 'val.pickle', 'test.pickle', 'train.index',
-            'val.index', 'test.index'
-        ]
+        raw_test = [file.name for file in Path(self.raw_dir).glob('*') if file.name.startswith("TR_") and file.name.endswith(".sdf")]
+        raw_train = [file.name for file in Path(self.raw_dir).glob('*') if file.name.startswith("TST_") and file.name.endswith(".sdf")]
+        return raw_train + raw_test
+            
 
     @property
     def processed_dir(self) -> str:
-        name = 'subset' if self.subset else 'full'
-        return osp.join(self.root, name, 'processed')
+        return osp.join(self.root, 'processed', self.name)
 
     @property
     def processed_file_names(self) -> List[str]:
-        return ['train.pt', 'val.pt', 'test.pt']
+        return ['train.pt', 'test.pt']
 
 
     @classmethod
@@ -383,41 +388,45 @@ class LOGP(InMemoryDataset):
 
         return mol_atom_types
 
+    def sdf2molecules(self,sd_file_path: str) -> List[dict]:
+        supplier = Chem.SDMolSupplier(sd_file_path)
+        mols = []
+        for mol in supplier:
+            if mol is not None:
+                if self.target:
+                    y = np.asarray(float(mol.GetProp(self.target)))
+                else:
+                    y = [1.0]
+                mol_atom_types = np.asarray(OPERA.encode_atom_types(mol),dtype=np.int8) # encoding important!
+                bond_adj_matrix = np.zeros((mol.GetNumAtoms(), mol.GetNumAtoms()), dtype=np.int8)
+                    # Fill in the adjacency matrix with bond types
+                for bond in mol.GetBonds():
+                    i = bond.GetBeginAtomIdx()
+                    j = bond.GetEndAtomIdx()
+                    bond_type = self.bond_type_to_int[bond.GetBondType()]
+                    bond_adj_matrix[i, j] = bond_type
+                    bond_adj_matrix[j, i] = bond_type 
+                
+                num_atom = len(mol_atom_types)
+                if num_atom>40: continue
+                mols.append({'num_atom':num_atom,'atom_type': mol_atom_types,'bond_type': bond_adj_matrix, 'y': y})
+        return mols
+    
 
     def download(self):
         shutil.rmtree(self.raw_dir)
         path = download_url(self.url, self.root)
         extract_zip(path, self.root)
-        os.rename(osp.join(self.root, 'OPERA_LogP'), self.raw_dir)
+        os.rename(osp.join(self.root, self.name), self.raw_dir)
         os.unlink(path)
 
 
-    def process(self):
-        
-        for split in ['train', 'test','val']:
-            sd_file_path = osp.join(self.raw_dir, f'{self.train_test_map[split]}.sdf')
-            supplier = Chem.SDMolSupplier(sd_file_path)
-            mols = []
-            for mol in supplier:
-                if mol is not None:
-                    #mols.append(mol)
-                    logP = np.asarray(float(mol.GetProp('LogP')))
-                    mol_atom_types = np.asarray(LOGP.encode_atom_types(mol),dtype=np.int8) # important!!!
-                    bond_adj_matrix = np.zeros((mol.GetNumAtoms(), mol.GetNumAtoms()), dtype=np.int8)
-                     # Fill in the adjacency matrix with bond types
-                    for bond in mol.GetBonds():
-                        i = bond.GetBeginAtomIdx()
-                        j = bond.GetEndAtomIdx()
-                        bond_type = self.bond_type_to_int[bond.GetBondType()]
-                        bond_adj_matrix[i, j] = bond_type
-                        bond_adj_matrix[j, i] = bond_type 
-                    
-                    num_atom = len(mol_atom_types)
-                    
-                    if num_atom>20: continue
-                    
-                    mols.append({'num_atom':num_atom,'atom_type': mol_atom_types,'bond_type': bond_adj_matrix, 'logP': logP})
-                    
+    def process(self):     
+        for i,split in enumerate(['train', 'test']):
+            
+            sd_file_path = osp.join(self.raw_dir, self.raw_file_names[i])
+            mols = self.sdf2molecules(sd_file_path)
+            print(f"Molecule count: {len(mols)}")
             pbar = tqdm(total=len(mols))
             pbar.set_description(f'Processing {split} dataset')
 
@@ -425,7 +434,7 @@ class LOGP(InMemoryDataset):
             for mol in mols:
 
                 x = torch.from_numpy(mol['atom_type']).to(torch.long).view(-1, 1) # if not casted here this gives 
-                y = torch.from_numpy(mol['logP']).to(torch.float)
+                y = torch.from_numpy(mol['y']).to(torch.float)
                 
                 adj = torch.from_numpy(mol['bond_type']).to(torch.long)
                 edge_index = adj.nonzero(as_tuple=False).t().contiguous()
@@ -446,15 +455,180 @@ class LOGP(InMemoryDataset):
 
             pbar.close()
 
-            
             torch.save(self.collate(data_list),
                        osp.join(self.processed_dir, f'{split}.pt'))
 
 
+class SDF(InMemoryDataset):
+    
+    # Define a mapping from bond types to integers
+    bond_type_to_int = {Chem.rdchem.BondType.SINGLE: 1, 
+                    Chem.rdchem.BondType.DOUBLE: 2,
+                    Chem.rdchem.BondType.TRIPLE: 3,
+                    Chem.rdchem.BondType.AROMATIC: 1}
+    
+    PREDEFINED_MAPPING = {
+    6: 0,  # Carbon
+    1: 1,  # Hydrogen
+    7: 2,  # Nitrogen
+    8: 3,  # Oxygen
+    9: 4,  # Fluor
+    14: 5, # Si
+    15: 6, # P
+    16: 7, # Sulfur
+    17: 8, # Chlorine
+    34: 9, # Selen
+    35: 10,# Bromine
+    50: 11, # Sn
+    }
+    
+    def __init__(
+        self,
+        root: str,
+        split: str = 'train',
+        name: str = '/NEWDATA/moldata/sampl6/sampl6.sdf',
+        target: Optional[str] = "logP", 
+        transform: Optional[Callable] = None,
+        pre_transform: Optional[Callable] = None,
+        pre_filter: Optional[Callable] = None,
+    ):
+        assert split in ['train', 'test','val']
+        self.name = name
+        self.target = target
+        self.is_csv = self.name.endswith(".csv")
+      
+        super().__init__(root, transform, pre_transform, pre_filter) # Dataset starts download and process on init
+        path = osp.join(self.processed_dir, f'{split}.pt')
+        self.data, self.slices = torch.load(path)
 
+    @property
+    def raw_file_names(self) -> List[str]:
+        return [self.name]
+            
+
+    @property
+    def processed_dir(self) -> str:
+        return osp.join(self.root, 'processed')
+
+    @property
+    def processed_file_names(self) -> List[str]:
+        return ['train.pt', 'test.pt']
+
+
+    def encode_atom_types(self,mol: Chem.rdchem.Mol) -> List[int]:
+        mol_atom_types = []
+        for atom in mol.GetAtoms():
+            atomic_num = atom.GetAtomicNum()
+            mol_atom_types.append(self.PREDEFINED_MAPPING.get(atomic_num, len(self.PREDEFINED_MAPPING)))
+
+        return mol_atom_types
+
+
+    def encode_mol(self,mol):
+        mol_atom_types = np.asarray(self.encode_atom_types(mol),dtype=np.int8) # encoding important!
+        bond_adj_matrix = np.zeros((mol.GetNumAtoms(), mol.GetNumAtoms()), dtype=np.int8)
+        for bond in mol.GetBonds():
+            i = bond.GetBeginAtomIdx()
+            j = bond.GetEndAtomIdx()
+            bond_type = self.bond_type_to_int[bond.GetBondType()]
+            bond_adj_matrix[i, j] = bond_type
+            bond_adj_matrix[j, i] = bond_type 
+                
+        num_atom = len(mol_atom_types)
+        return mol_atom_types, bond_adj_matrix, num_atom
+     
+     
+    def sdf2molecules(self,sd_file_path: str, max_atoms: int = 40) -> List[dict]:
+        supplier = Chem.SDMolSupplier(sd_file_path)
+        mols = []
+        for mol in supplier:
+            if mol is not None:
+                if self.target:
+                    y = np.asarray(float(mol.GetProp(self.target)))
+                else:
+                    y = np.asarray([1.0])
+                mol_atom_types, bond_adj_matrix, num_atom = self.encode_mol(mol)             
+                if num_atom>max_atoms: continue
+                mols.append({'num_atom':num_atom,'atom_type': mol_atom_types,'bond_type': bond_adj_matrix, 'y': y})
+        return mols
+      
+      
+    def csv2molecules(self,csv_path: str,  max_atoms: int = 40) ->List[dict]:
+        df = pd.read_csv(csv_path,sep=";") # infer separator
+        print(df)
+        if not self.target in df.columns:
+            print(f"Missing target in columns: {self.target}")
+            breakpoint()
+        
+        if "SMILES" in df.columns:
+            df['rdmol'] = df['SMILES'].map(lambda x: Chem.MolFromSmiles(x))
+
+        mols = []
+        for i,row in df.iterrows():
+            mol = row['rdmol']
+            if self.target in row:   
+                y = np.asarray(row[self.target])
+            else:
+                y = np.asarray([1.0])
+            mol_atom_types, bond_adj_matrix, num_atom = self.encode_mol(mol)  
+            if num_atom>max_atoms: continue
+            mols.append({'num_atom':num_atom,'atom_type': mol_atom_types,'bond_type': bond_adj_matrix, 'y': y})
+        return mols
+
+    def download(self):
+        shutil.rmtree(self.raw_dir)
+        if not os.path.exists(self.raw_dir):
+            os.makedirs(self.raw_dir)
+
+        shutil.copy(self.name,self.raw_dir)
+
+
+    def process(self):     
+        for i,split in enumerate(['train']):
+            file_path = osp.join(self.raw_dir, self.raw_file_names[i])
+            if self.name.endswith(".sdf"): 
+                mols = self.sdf2molecules(file_path)
+            elif self.name.endswith(".csv"):
+                mols = self.csv2molecules(file_path)
+            else:
+                print("Need either csv or sdf file!")
+                return
+                
+            print(f"Molecule count: {len(mols)}")
+            pbar = tqdm(total=len(mols))
+            pbar.set_description(f'Processing {split} dataset')
+
+            data_list = []
+            for mol in mols:
+
+                x = torch.from_numpy(mol['atom_type']).to(torch.long).view(-1, 1) # if not casted here this gives 
+                y = torch.from_numpy(mol['y']).to(torch.float)
+                
+                adj = torch.from_numpy(mol['bond_type']).to(torch.long)
+                edge_index = adj.nonzero(as_tuple=False).t().contiguous()
+                
+                edge_attr = adj[edge_index[0], edge_index[1]].to(torch.long)
+                
+                data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr,
+                            y=y)
+
+                if self.pre_filter is not None and not self.pre_filter(data):
+                    continue
+
+                if self.pre_transform is not None:
+                    data = self.pre_transform(data)
+
+                data_list.append(data)
+                pbar.update(1)
+
+            pbar.close()
+
+            torch.save(self.collate(data_list),
+                       osp.join(self.processed_dir, f'{split}.pt'))
 
 
 if __name__ == '__main__':
-    dataset = LOGP("./datasets/LOGP")
+    #dataset = OPERA("./datasets/OPERA",name="OPERA_LogP")
+    dataset = SDF("./datasets/SAMPL6",name = "/NEWDATA/moldata/sampl6/sampl6.sdf")
     #dataset = ZINCMOD("./datasets/ZINCMOD")
     #dataset.download()

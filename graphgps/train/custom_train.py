@@ -1,5 +1,6 @@
 import logging
 import time
+import os
 
 import numpy as np
 import torch
@@ -51,14 +52,18 @@ def train_epoch(logger, loader, model, optimizer, scheduler, batch_accumulation)
 def eval_epoch(logger, loader, model, split='val'):
     model.eval()
     time_start = time.time()
+    predictions = []
     for batch in loader:
         batch.split = split
         batch.to(torch.device(cfg.accelerator))
+        
         if cfg.gnn.head == 'inductive_edge':
             pred, true, extra_stats = model(batch)
         else:
             pred, true = model(batch)
             extra_stats = {}
+        predictions.append(pred.detach().to('cpu', non_blocking=True))
+        
         if cfg.dataset.name == 'ogbg-code2':
             loss, pred_score = subtoken_cross_entropy(pred, true)
             _true = true
@@ -75,7 +80,8 @@ def eval_epoch(logger, loader, model, split='val'):
                             dataset_name=cfg.dataset.name,
                             **extra_stats)
         time_start = time.time()
-
+    predictions = torch.cat(predictions,dim=0)
+    return predictions
 
 @register_train('custom')
 def custom_train(loggers, loaders, model, optimizer, scheduler):
@@ -235,10 +241,22 @@ def inference_only(loggers, loaders, model, optimizer=None, scheduler=None):
     start_time = time.perf_counter()
 
     for i in range(0, num_splits):
-        eval_epoch(loggers[i], loaders[i], model,
+        predictions = eval_epoch(loggers[i], loaders[i], model,
                    split=split_names[i])
+        
+        print(f"split_name {split_names[i]} predictions: {len(predictions)}")
+        
+        # saving predictions
+        pred_path = os.path.join(cfg.run_dir,f"predictions_{split_names[i]}.csv")
+        np.savetxt(pred_path, predictions.numpy(), delimiter=',')
+        print(f"Predictions saved to {pred_path}")
+        # saving model
+        #model_path = os.path.join(cfg.run_dir,f"model.pt")
+        #compiled_model = torch.jit.script(model)
+        #torch.save(compiled_model, model_path)
+        
         perf[i].append(loggers[i].write_epoch(cur_epoch))
-
+        
     best_epoch = 0
     best_train = best_val = best_test = ""
     if cfg.metric_best != 'auto':
@@ -261,6 +279,7 @@ def inference_only(loggers, loaders, model, optimizer=None, scheduler=None):
     )
     logging.info(f'Done! took: {time.perf_counter() - start_time:.2f}s')
     for logger in loggers:
+
         logger.close()
 
 

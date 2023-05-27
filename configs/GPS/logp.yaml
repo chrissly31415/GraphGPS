@@ -5,13 +5,13 @@ wandb:
   use: True
   project: logp 
 dataset:
-  format: PyG-LOGP
-  name: full 
+  format: PyG-OPERA
+  name: OPERA_LogP
   task: graph
   task_type: regression
   transductive: False
   split_mode: random
-  #split: [8000, 1000, 1000]
+
   node_encoder: True
   node_encoder_name: TypeDictNode+RWSE
   node_encoder_num_types: 28
@@ -20,6 +20,12 @@ dataset:
   edge_encoder_name: TypeDictEdge
   edge_encoder_num_types: 4
   edge_encoder_bn: False
+posenc_GraphormerBias:
+  enable: False
+  node_degrees_only: True
+  num_spatial_types: 20
+  num_in_degrees: 1297
+  num_out_degrees: 74
 posenc_RWSE:
   enable: True
   kernel:

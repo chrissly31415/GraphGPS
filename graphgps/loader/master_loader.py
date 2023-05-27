@@ -14,7 +14,7 @@ from torch_geometric.graphgym.config import cfg
 from torch_geometric.graphgym.loader import load_pyg, load_ogb, set_dataset_attr
 from torch_geometric.graphgym.register import register_loader
 
-from graphgps.loader.dataset.custom_datasets import AQSOL,LOGP, ZINC
+from graphgps.loader.dataset.custom_datasets import AQSOL,OPERA, SDF, ZINC
 from graphgps.loader.dataset.coco_superpixels import COCOSuperpixels
 from graphgps.loader.dataset.malnet_tiny import MalNetTiny
 from graphgps.loader.dataset.voc_superpixels import VOCSuperpixels
@@ -126,16 +126,18 @@ def load_dataset_master(format, name, dataset_dir):
                 raise NotImplementedError(f"crocodile not implemented")
             dataset = WikipediaNetwork(dataset_dir, name,
                                        geom_gcn_preprocess=True)
-
+            
         elif pyg_dataset_id == 'ZINC':
             dataset = preformat_ZINC(dataset_dir, name)
 
-            
         elif pyg_dataset_id == 'AQSOL':
             dataset = preformat_AQSOL(dataset_dir)
         
-        elif pyg_dataset_id == 'LOGP':
-            dataset = LOGP(root=dataset_dir)
+        elif pyg_dataset_id == 'OPERA':
+            dataset = OPERA(root=dataset_dir,name=name)
+        
+        elif pyg_dataset_id == 'SDF':
+            dataset = SDF(root=dataset_dir,name=name)
     
         elif pyg_dataset_id == 'VOCSuperpixels':
             dataset = preformat_VOCSuperpixels(dataset_dir, name,
